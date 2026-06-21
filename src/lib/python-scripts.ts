@@ -530,16 +530,44 @@ def run_r_squared(df, iv_cols, dv_col):
 
 def run_analysis(data_json, iv_cols, dv_col, selected_tests):
     import json as j
+    import re
     df = pd.DataFrame(j.loads(data_json))
+    # Convert all columns to numeric where possible
+    for col in df.columns:
+        if col not in iv_cols and col != dv_col:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
     for col in iv_cols + [dv_col]:
         df[col] = pd.to_numeric(df[col], errors='coerce')
     df = df.dropna(subset=iv_cols + [dv_col])
 
+    # Auto-detect item columns (numeric cols NOT selected as X/Y totals)
+    # Exclude columns where ALL values are NaN (e.g. Responden that got coerced)
+    numeric_df = df.select_dtypes(include=[np.number])
+    numeric_df = numeric_df.dropna(axis=1, how='all')
+    all_numeric = numeric_df.columns.tolist()
+    item_cols = [c for c in all_numeric if c not in iv_cols and c != dv_col]
+
+    # Group items by prefix for reliability (K1,K2,K3 -> group "K")
+    def get_prefix(c):
+        return re.sub(r'\d+$', '', c)
+    item_groups = {}
+    if item_cols:
+        for c in item_cols:
+            item_groups.setdefault(get_prefix(c), []).append(c)
+
     results = {}
     if 'validity' in selected_tests:
-        results['validity'] = j.loads(run_validity(df, iv_cols, dv_col))
+        valid_cols = item_cols if item_cols else iv_cols
+        results['validity'] = j.loads(run_validity(df, valid_cols))
     if 'reliability' in selected_tests:
-        results['reliability'] = j.loads(run_reliability(df, iv_cols))
+        if item_groups:
+            rel = {}
+            for grp, gitems in item_groups.items():
+                if len(gitems) >= 2:
+                    rel[grp] = j.loads(run_reliability(df, gitems))
+            results['reliability'] = rel
+        else:
+            results['reliability'] = j.loads(run_reliability(df, iv_cols))
     if 'normality' in selected_tests:
         results['normality'] = j.loads(run_normality(df, iv_cols=iv_cols, dv_col=dv_col))
     if 'multicollinearity' in selected_tests:
