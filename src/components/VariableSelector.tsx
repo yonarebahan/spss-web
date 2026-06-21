@@ -5,11 +5,13 @@ import { useState } from 'react';
 interface VariableSelectorProps {
   columns: string[];
   numericColumns: string[];
+  dataPreview: Record<string, any>[];
+  fileName: string;
   onSelectionComplete: (ivCols: string[], dvCol: string) => void;
   onBack: () => void;
 }
 
-export default function VariableSelector({ columns, numericColumns, onSelectionComplete, onBack }: VariableSelectorProps) {
+export default function VariableSelector({ columns, numericColumns, dataPreview, fileName, onSelectionComplete, onBack }: VariableSelectorProps) {
   const [ivCols, setIvCols] = useState<string[]>([]);
   const [dvCol, setDvCol] = useState('');
 
@@ -25,15 +27,34 @@ export default function VariableSelector({ columns, numericColumns, onSelectionC
 
   return (
     <div className="card">
+      {/* Data preview */}
+      <div style={{ marginBottom: 20 }}>
+        <h3 style={{ margin: '0 0 12px', fontSize: 16 }}>
+          📄 {fileName} — {dataPreview.length > 0 ? `${dataPreview.length}+ baris, ${columns.length} kolom` : ''}
+        </h3>
+        <div style={{ overflowX: 'auto' }}>
+          <table className="spss-table">
+            <thead>
+              <tr>{columns.map(col => <th key={col}>{col}</th>)}</tr>
+            </thead>
+            <tbody>
+              {dataPreview.slice(0, 3).map((row, i) => (
+                <tr key={i}>{columns.map(col => <td key={col}>{row[col]}</td>)}</tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <h2 style={{ margin: '0 0 8px', fontSize: 20 }}>📋 Pilih Variabel Penelitian</h2>
       <p style={{ color: '#64748b', fontSize: 14, margin: '0 0 20px' }}>
-        Pilih variabel independen (X) dan variabel dependen (Y) dari data yang diupload
+        Pilih variabel <strong>X</strong> (independen) dan <strong>Y</strong> (dependen). Semua uji statistik akan otomatis dijalankan.
       </p>
 
       {/* IV Selection */}
       <div style={{ marginBottom: 24 }}>
         <h3 style={{ fontSize: 15, margin: '0 0 12px', color: '#1e40af' }}>
-          Variabel Independen (X) — Pilih 1 atau lebih
+          🔵 Variabel X (Independen) — Pilih 1 atau lebih
         </h3>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {numericColumns.map(col => (
@@ -61,7 +82,7 @@ export default function VariableSelector({ columns, numericColumns, onSelectionC
       {/* DV Selection */}
       <div style={{ marginBottom: 24 }}>
         <h3 style={{ fontSize: 15, margin: '0 0 12px', color: '#92400e' }}>
-          Variabel Dependen (Y) — Pilih 1
+          🟠 Variabel Y (Dependen) — Pilih 1
         </h3>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {numericColumns.map(col => (
@@ -86,7 +107,7 @@ export default function VariableSelector({ columns, numericColumns, onSelectionC
         </div>
       </div>
 
-      {/* Summary */}
+      {/* Summary + auto tests info */}
       {(ivCols.length > 0 || dvCol) && (
         <div style={{
           background: '#f8fafc', padding: 16, borderRadius: 8,
@@ -96,15 +117,19 @@ export default function VariableSelector({ columns, numericColumns, onSelectionC
           {ivCols.length > 0 && (
             <p style={{ margin: '0 0 4px', fontSize: 13 }}>
               <span className="var-tag iv">X (Independen)</span>{' '}
-              {ivCols.map(c => c).join(', ')}
+              {ivCols.join(', ')}
             </p>
           )}
           {dvCol && (
-            <p style={{ margin: 0, fontSize: 13 }}>
+            <p style={{ margin: '0 0 12px', fontSize: 13 }}>
               <span className="var-tag dv">Y (Dependen)</span>{' '}
               {dvCol}
             </p>
           )}
+          <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>
+            ✅ Akan dijalankan otomatis: Validitas, Reliabilitas, Normalitas, Multikolinearitas,
+            Heteroskedastisitas, Autokorelasi, Regresi, Uji F, Uji t, R²
+          </p>
         </div>
       )}
 
@@ -118,7 +143,7 @@ export default function VariableSelector({ columns, numericColumns, onSelectionC
           disabled={ivCols.length === 0 || !dvCol}
           onClick={() => onSelectionComplete(ivCols, dvCol)}
         >
-          Lanjut Pilih Uji →
+          🔍 Analisis Sekarang
         </button>
       </div>
     </div>
