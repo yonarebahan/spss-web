@@ -2,17 +2,63 @@
 
 import { useState, useCallback } from 'react';
 import FileUpload from '@/components/FileUpload';
-import VariableSelector from '@/components/VariableSelector';
 import ResultsDisplay from '@/components/ResultsDisplay';
-import { loadPyodideEngine, runAnalysis, getDataInfo } from '@/lib/pyodide-engine';
+import { loadPyodideEngine, runAnalysis } from '@/lib/pyodide-engine';
 
-type Step = 'upload' | 'variables' | 'running' | 'results';
+type Step = 'upload' | 'confirm' | 'running' | 'results';
 
 const ALL_TESTS = [
   'validity', 'reliability', 'normality', 'multicollinearity',
   'heteroscedasticity', 'autocorrelation', 'regression', 'f_test',
   't_test', 'r_squared'
 ];
+
+/** Auto-detect X (totals) and Y (last total) from column names */
+function autoDetectVariables(columns: string[], numericColumns: string[], rows: Record<string, any>[]) {
+  // Find item groups: columns ending with digits (K1, K2, M1, etc.)
+  const itemPattern = /^(.+?)(\d+)$/;
+  const itemPrefixes = new Set<string>();
+  const itemCols: string[] = [];
+
+  for (const col of numericColumns) {
+    const match = col.match(itemPattern);
+    if (match) {
+      itemPrefixes.add(match[1].toLowerCase());
+      itemCols.push(col);
+    }
+  }
+
+  // Total columns = numeric columns that are NOT items
+  const totalCols = numericColumns.filter(c => !itemCols.includes(c));
+
+  // Try to match totals to item group prefixes
+  // e.g., group "k" → total "Kepemimpinan", group "kp" → total "Kinerja"
+  const matched: { iv: string[]; dv: string } = { iv: [], dv: '' };
+
+  if (totalCols.length >= 2 && itemPrefixes.size > 0) {
+    // Sort totals: DV is usually the last one in column order
+    const sortedTotals = [...totalCols].sort((a, b) => {
+      const ia = columns.indexOf(a);
+      const ib = columns.indexOf(b);
+      return ia - ib;
+    });
+    matched.iv = sortedTotals.slice(0, -1);
+    matched.dv = sortedTotals[sortedTotals.length - 1];
+  } else if (numericColumns.length >= 2) {
+    // Fallback: last numeric = DV, rest = IV
+    matched.iv = numericColumns.slice(0, -1);
+    matched.dv = numericColumns[numericColumns.length - 1];
+  }
+
+  return {
+    ivCols: matched.iv,
+    dvCol: matched.dv,
+    itemCount: itemCols.length,
+    groupCount: itemPrefixes.size,
+    totalCols,
+    autoDetected: matched.iv.length > 0 && !!matched.dv
+  };
+}
 
 export default function Home() {
   const [step, setStep] = useState<Step>('upload');
@@ -21,15 +67,11 @@ export default function Home() {
   const [loadProgress, setLoadProgress] = useState('');
   const [data, setData] = useState<Record<string, any>[]>([]);
   const [fileName, setFileName] = useState('');
-  const [columns, setColumns] = useState<string[]>([]);
-  const [numericColumns, setNumericColumns] = useState<string[]>([]);
   const [ivCols, setIvCols] = useState<string[]>([]);
   const [dvCol, setDvCol] = useState('');
+  const [detected, setDetected] = useState<any>(null);
   const [results, setResults] = useState<any>(null);
   const [analysisError, setAnalysisError] = useState('');
-  const [dataPreview, setDataPreview] = useState<Record<string, any>[]>([]);
-
-  const stepIndex = { upload: 0, variables: 1, running: 1, results: 2 }[step];
 
   const initPyodide = useCallback(async () => {
     if (pyodideReady || pyodideLoading) return;
@@ -49,20 +91,31 @@ export default function Home() {
   const handleFileLoaded = async (fileData: Record<string, any>[], name: string) => {
     setData(fileData);
     setFileName(name);
+
     const cols = Object.keys(fileData[0] || {});
-    setColumns(cols);
     const numCols = cols.filter(col =>
       fileData.some(row => !isNaN(parseFloat(row[col])) && row[col] !== '')
     );
-    setNumericColumns(numCols);
-    setDataPreview(fileData.slice(0, 5));
-    setStep('variables');
+
+    // Auto-detect variables
+    const det = autoDetectVariables(cols, numCols, fileData);
+    setDetected(det);
+    setIvCols(det.ivCols);
+    setDvCol(det.dvCol);
+    setAnalysisError('');
+
+    if (det.autoDetected) {
+      setStep('confirm');
+    } else {
+      // Couldn't auto-detect — show error
+      setAnalysisError('Tidak bisa deteksi otomatis. Pastikan data punya kolom numerik X dan Y.');
+      setStep('confirm');
+    }
+
     initPyodide();
   };
 
-  const handleVariablesComplete = async (ivs: string[], dv: string) => {
-    setIvCols(ivs);
-    setDvCol(dv);
+  const handleAnalyze = async () => {
     setStep('running');
     setAnalysisError('');
 
@@ -72,13 +125,13 @@ export default function Home() {
         await loadPyodideEngine();
         setPyodideReady(true);
       }
-      setLoadProgress('Menjalankan semua uji statistik...');
-      const analysisResults = await runAnalysis(data, ivs, dv, ALL_TESTS);
+      setLoadProgress('Menjalankan 10 uji statistik...');
+      const analysisResults = await runAnalysis(data, ivCols, dvCol, ALL_TESTS);
       setResults(analysisResults);
       setStep('results');
     } catch (err: any) {
       setAnalysisError(`Error: ${err.message}`);
-      setStep('variables');
+      setStep('confirm');
     }
   };
 
@@ -88,24 +141,27 @@ export default function Home() {
         background: 'linear-gradient(135deg, #1e3a5f 0%, #1e40af 100%)',
         color: 'white', padding: '20px 24px', textAlign: 'center'
       }}>
-        <h1 style={{ margin: '0 0 4px', fontSize: 26, fontWeight: 800, letterSpacing: '-0.5px' }}>
+        <h1 style={{ margin: '0 0 4px', fontSize: 26, fontWeight: 800 }}>
           📊 SPSS Web
         </h1>
         <p style={{ margin: 0, fontSize: 14, opacity: 0.85 }}>
-          Upload data → Pilih X & Y → Langsung dapat hasil analisis lengkap
+          Upload data skripsi → Langsung dapat hasil analisis lengkap
         </p>
       </header>
 
       <div style={{ maxWidth: 900, margin: '0 auto', padding: '0 20px' }}>
         <div className="step-indicator" style={{ paddingTop: 20 }}>
-          {['Upload Data', 'Pilih X & Y', 'Hasil Analisis'].map((label, i) => (
-            <div key={label} style={{ textAlign: 'center', flex: 1 }}>
-              <div className={`step-dot ${i < stepIndex ? 'done' : i === stepIndex ? 'active' : ''}`} />
-              <span style={{ fontSize: 11, color: i <= stepIndex ? '#1e40af' : '#94a3b8', marginTop: 4, display: 'block' }}>
-                {label}
-              </span>
-            </div>
-          ))}
+          {['Upload Data', 'Konfirmasi', 'Hasil'].map((label, i) => {
+            const si = { upload: 0, confirm: 1, running: 1, results: 2 }[step];
+            return (
+              <div key={label} style={{ textAlign: 'center', flex: 1 }}>
+                <div className={`step-dot ${i < si ? 'done' : i === si ? 'active' : ''}`} />
+                <span style={{ fontSize: 11, color: i <= si ? '#1e40af' : '#94a3b8', marginTop: 4, display: 'block' }}>
+                  {label}
+                </span>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -114,8 +170,8 @@ export default function Home() {
           <FileUpload onFileLoaded={handleFileLoaded} />
         )}
 
-        {step === 'variables' && (
-          <>
+        {step === 'confirm' && detected && (
+          <div className="card">
             {analysisError && (
               <div style={{
                 padding: '12px 16px', background: '#fef2f2', border: '1px solid #fecaca',
@@ -124,15 +180,59 @@ export default function Home() {
                 ⚠️ {analysisError}
               </div>
             )}
-            <VariableSelector
-              columns={columns}
-              numericColumns={numericColumns}
-              dataPreview={dataPreview}
-              fileName={fileName}
-              onSelectionComplete={handleVariablesComplete}
-              onBack={() => setStep('upload')}
-            />
-          </>
+
+            <h2 style={{ margin: '0 0 8px', fontSize: 20 }}>✅ Variabel Terdeteksi</h2>
+            <p style={{ color: '#64748b', fontSize: 14, margin: '0 0 16px' }}>
+              File: <strong>{fileName}</strong> — {data.length} responden, {detected.itemCount} item, {detected.groupCount} grup
+            </p>
+
+            <div style={{
+              background: '#f0f9ff', padding: 16, borderRadius: 8,
+              border: '1px solid #bae6fd', marginBottom: 12
+            }}>
+              <p style={{ margin: '0 0 8px', fontSize: 14, fontWeight: 600 }}>
+                🔵 Variabel X (Independen):
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {ivCols.map(c => (
+                  <span key={c} style={{
+                    padding: '4px 12px', background: '#dbeafe', borderRadius: 6,
+                    fontSize: 13, fontWeight: 600, color: '#1e40af'
+                  }}>{c}</span>
+                ))}
+              </div>
+            </div>
+
+            <div style={{
+              background: '#fefce8', padding: 16, borderRadius: 8,
+              border: "1px solid #fde68a", marginBottom: 20
+            }}>
+              <p style={{ margin: '0 0 8px', fontSize: 14, fontWeight: 600 }}>
+                🟠 Variabel Y (Dependen):
+              </p>
+              <span style={{
+                padding: '4px 12px', background: '#fef3c7', borderRadius: 6,
+                fontSize: 13, fontWeight: 600, color: '#92400e'
+              }}>{dvCol}</span>
+            </div>
+
+            <div style={{
+              background: '#f8fafc', padding: 12, borderRadius: 8,
+              border: '1px solid #e2e8f0', marginBottom: 20, fontSize: 12, color: '#64748b'
+            }}>
+              <strong>Uji yang akan dijalankan:</strong> Validitas, Reliabilitas, Normalitas, Multikolinearitas,
+              Heteroskedastisitas, Autokorelasi, Regresi, Uji F, Uji t, R²
+            </div>
+
+            <div style={{ display: 'flex', gap: 12 }}>
+              <button className="btn-secondary" onClick={() => setStep('upload')}>
+                ← Upload Ulang
+              </button>
+              <button className="btn-primary" onClick={handleAnalyze}>
+                🔍 Analisis Sekarang
+              </button>
+            </div>
+          </div>
         )}
 
         {step === 'running' && (
@@ -141,9 +241,8 @@ export default function Home() {
             <h3 style={{ margin: '0 0 8px' }}>{loadProgress || 'Menganalisis data...'}</h3>
             <p style={{ color: '#64748b', fontSize: 14 }}>
               {pyodideReady
-                ? 'Menjalankan 10 uji statistik sekaligus...'
-                : 'Pertama kali memuat Python runtime (~20MB). Akan di-cache untuk kunjungan berikutnya.'
-              }
+                ? 'Menjalankan 10 uji statistik...'
+                : 'Pertama kali memuat Python runtime (~20MB). Akan di-cache.'}
             </p>
           </div>
         )}
@@ -153,14 +252,13 @@ export default function Home() {
             results={results}
             ivCols={ivCols}
             dvCol={dvCol}
-            onBack={() => setStep('variables')}
+            onBack={() => setStep('confirm')}
             onRestart={() => {
               setStep('upload');
               setData([]);
-              setColumns([]);
-              setNumericColumns([]);
               setIvCols([]);
               setDvCol('');
+              setDetected(null);
               setResults(null);
             }}
           />
@@ -171,7 +269,7 @@ export default function Home() {
         textAlign: 'center', padding: '16px 20px', color: '#94a3b8', fontSize: 12,
         borderTop: '1px solid #e2e8f0', background: 'white'
       }}>
-        SPSS Web — Hasil sama dengan SPSS. Menggunakan scipy & statsmodels di browser via Pyodide.
+        SPSS Web — Hasil sama dengan SPSS. Menggunakan scipy di browser via Pyodide.
       </footer>
     </div>
   );
