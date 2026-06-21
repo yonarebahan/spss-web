@@ -171,9 +171,6 @@ def run_heteroscedasticity(df, iv_cols, dv_col):
             'conclusion': 'Ada heteroskedastisitas (p < 0.05)' if p < 0.05 else 'Bebas heteroskedastisitas (p ≥ 0.05)'
         })
     
-    # Constant
-    slope, intercept, r, p, se = stats.linregress(np.ones(len(residuals)), residuals)
-    
     return json.dumps({
         'tests': results,
         'overall': 'Bebas heteroskedastisitas' if all(bool(r['sig'] >= 0.05) for r in results) else 'Terdeteksi heteroskedastisitas'
@@ -315,7 +312,7 @@ def run_f_test(df, iv_cols, dv_col):
     result = json.loads(run_regression(df, iv_cols, dv_col))
     
     from scipy import stats as scipy_stats
-    f_crit = scipy_stats.ppf(0.95, result['df_reg'], result['df_res'])
+    f_crit = scipy_stats.f.ppf(0.95, result['df_reg'], result['df_res'])
     
     return json.dumps({
         'f_statistic': result['f_statistic'],
@@ -336,7 +333,7 @@ def run_t_test(df, iv_cols, dv_col):
     result = json.loads(run_regression(df, iv_cols, dv_col))
     
     from scipy import stats as scipy_stats
-    t_crit = scipy_stats.ppf(0.975, result['df_res'])
+    t_crit = scipy_stats.t.ppf(0.975, result['df_res'])
     
     tests = []
     for coef in result['coefficients']:
