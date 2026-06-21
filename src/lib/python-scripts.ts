@@ -46,7 +46,7 @@ def run_validity(df, item_cols, total_col):
             'r_count': round(r, 4),
             'r_table': r_table,
             'n': len(df),
-            'valid': valid,
+            'valid': bool(valid),
             'conclusion': 'Valid' if valid else 'Tidak Valid'
         })
     
@@ -64,7 +64,7 @@ def run_reliability(df, items):
     return json.dumps({
         'alpha': round(alpha, 4),
         'n_items': k,
-        'reliable': reliable,
+        'reliable': bool(reliable),
         'conclusion': 'Reliabel (α > 0.60)' if reliable else 'Tidak Reliabel (α ≤ 0.60)',
         'item_stats': {
             col: {
@@ -100,7 +100,7 @@ def run_normality(df, residual_col=None, iv_cols=None, dv_col=None):
         'statistic': round(stat, 4),
         'p_value': round(p, 4),
         'alpha': 0.05,
-        'normal': p > 0.05,
+        'normal': bool(p > 0.05),
         'conclusion': 'Data berdistribusi normal (p > 0.05)' if p > 0.05 else 'Data TIDAK berdistribusi normal (p ≤ 0.05)',
         'mean': round(data.mean(), 4),
         'std': round(data.std(), 4)
@@ -141,8 +141,8 @@ def run_multicollinearity(df, iv_cols, dv_col):
             'variable': col,
             'tolerance': round(tolerance, 4),
             'vif': round(vif, 4),
-            'ok_tolerance': tolerance > 0.1,
-            'ok_vif': vif < 10,
+            'ok_tolerance': bool(tolerance > 0.1),
+            'ok_vif': bool(vif < 10),
             'conclusion': 'Bebas multikolinearitas' if (tolerance > 0.1 and vif < 10) else 'Ada multikolinearitas'
         })
     
@@ -167,7 +167,7 @@ def run_heteroscedasticity(df, iv_cols, dv_col):
             'b': round(slope, 4),
             'sig': round(p, 4),
             'r': round(r, 4),
-            'heteroscedastic': p < 0.05,
+            'heteroscedastic': bool(p < 0.05),
             'conclusion': 'Ada heteroskedastisitas (p < 0.05)' if p < 0.05 else 'Bebas heteroskedastisitas (p ≥ 0.05)'
         })
     
@@ -176,7 +176,7 @@ def run_heteroscedasticity(df, iv_cols, dv_col):
     
     return json.dumps({
         'tests': results,
-        'overall': 'Bebas heteroskedastisitas' if all(r['sig'] >= 0.05 for r in results) else 'Terdeteksi heteroskedastisitas'
+        'overall': 'Bebas heteroskedastisitas' if all(bool(r['sig'] >= 0.05) for r in results) else 'Terdeteksi heteroskedastisitas'
     })
 
 def run_autocorrelation(df, iv_cols, dv_col):
@@ -268,7 +268,7 @@ def run_regression(df, iv_cols, dv_col):
         'beta': '-',
         't': round(t_values[0], 4),
         'p': round(p_values[0], 4),
-        'significant': p_values[0] < 0.05
+        'significant': bool(p_values[0] < 0.05)
     })
     
     for i, col in enumerate(iv_cols):
@@ -279,7 +279,7 @@ def run_regression(df, iv_cols, dv_col):
             'beta': round(std_beta[i], 4),
             't': round(t_values[i + 1], 4),
             'p': round(p_values[i + 1], 4),
-            'significant': p_values[i + 1] < 0.05
+            'significant': bool(bool(p_values[i + 1] < 0.05))
         })
     
     # Equation string
@@ -327,7 +327,7 @@ def run_f_test(df, iv_cols, dv_col):
         'ss_res': result['ss_res'],
         'ms_reg': result['ms_reg'],
         'ms_res': result['ms_res'],
-        'significant': result['f_p_value'] < 0.05,
+        'significant': bool(result['f_p_value'] < 0.05),
         'conclusion': f"F-hitung ({result['f_statistic']}) > F-tabel ({round(f_crit, 4)}) atau p ({result['f_p_value']}) < 0.05, maka H0 ditolak. Variabel independen secara SIMULTAN berpengaruh signifikan terhadap variabel dependen." if result['f_p_value'] < 0.05 else f"F-hitung ({result['f_statistic']}) ≤ F-tabel ({round(f_crit, 4)}) atau p ({result['f_p_value']}) ≥ 0.05, maka H0 diterima. Variabel independen secara SIMULTAN TIDAK berpengaruh signifikan terhadap variabel dependen."
     })
 
@@ -341,7 +341,7 @@ def run_t_test(df, iv_cols, dv_col):
     tests = []
     for coef in result['coefficients']:
         if coef['variable'] != 'Constant':
-            sig = coef['p'] < 0.05
+            sig = bool(coef['p'] < 0.05)
             tests.append({
                 'variable': coef['variable'],
                 't_statistic': coef['t'],
